@@ -50,14 +50,10 @@ class BaseRegressor:
         X_scaled = self.scaler.fit_transform(X)
         return pd.DataFrame(X_scaled, columns=X.columns)
     
-    def set_data(self,X,y, preprocess=True):
-        if preprocess:
-            X_scaled = self.preprocess_data(X)
-        else:
-            X_scaled = X
-        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=1)
+    def set_data(self,X,y):        
+        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(X, y, test_size=0.2, random_state=1)
            
-    def search_best_model(self,  X=None, y=None, param_space_=None, n_iter_=10, n_jobs_=-1, scoring_metric='neg_mean_absolute_error'):
+    def search_best_model(self,  X=None, y=None, param_space_=None, n_iter_=10, n_jobs_=-1, scoring_metric='neg_mean_absolute_error', type_model=1):
        
         if X is None:
             X = self.X_train
@@ -72,8 +68,13 @@ class BaseRegressor:
         n_splits = 10
         kf = KFold(n_splits=n_splits, shuffle=True, random_state=126)       
         
+        if type_model == 1:
+            model = self.model_ml(**self.model_params_search)
+        if type_model == 2:
+            model = self.model_ml 
+
         self.opt_model = BayesSearchCV(
-            estimator=self.model_ml(**self.model_params_search),
+            estimator=model,
             search_spaces=param_space,
             #fit_params=self.fit_param,
             cv=kf,
@@ -89,7 +90,7 @@ class BaseRegressor:
         return self.opt_model, best_params_return
     
     
-    def trainer(self, df_concatenado_CN, lista_dfs=None, n_splits=10, n_iterations=20, params_=None):
+    def trainer(self, df_CN, df_patient=None, n_splits=10, n_iterations=20, params_=None, type_model=1, scaler=2):
     
         if params_ is None:
             params = self.params
@@ -97,36 +98,37 @@ class BaseRegressor:
             params = params_
         
         # Preparar el dataframe de controles
-        X_CN = df_concatenado_CN.iloc[:, :-2]  # Features
-        y_CN = df_concatenado_CN.iloc[:, -2]   # Labels (Age)
-        ID_CN = df_concatenado_CN.iloc[:, -1]  # IDs
-        results_per_fold_CN_train = [[None for _ in range(n_splits)] for _ in range(n_iterations)]
-        results_per_fold_CN_test = [[None for _ in range(n_splits)] for _ in range(n_iterations)]
-
+        X_CN = df_CN.iloc[:, :-2]  # Features
+        y_CN = df_CN.iloc[:, -2]   # Labels (Age)
+        ID_CN = df_CN.iloc[:, -1]  # IDs
+        results_per_fold_CN_train = []
+        results_per_fold_CN_test = []
 
         # Inicializar resultados
         results = {'model': [],
                    'mean_X_train_kf':[],
                    'std_X_train_kf':[],
+                   'min_X_train_kf':[],
+                   'max_X_train_kf':[],
                    'slope': [],
                    'intercept': [],
                    }
+        
         results_labels_df_CN_train = pd.DataFrame(columns=['y_labels','y_pred','y_pred_corrected','GAP', 'GAP_corrected', 'ID-unique'])
         results_labels_df_CN_test = pd.DataFrame(columns=['y_labels', 'y_pred', 'y_pred_corrected', 'GAP', 'GAP_corrected', 'ID-unique'])
 
-        if lista_dfs is not None:
-            results_per_fold_pat = [[[None for _ in range(n_splits)] for _ in range(n_iterations)] for _ in lista_dfs]
-
+        if df_patient is not None:
+            results_per_fold_patient = [[] for _ in df_patient]
         else:
-            results_per_fold_pat=[]
+            results_per_fold_patient = []
 
-        results_labels_list = []
+        results_labels_patient = []
 
         # Inicializar resultados por fold para pacientes
         # Si lista_dfs no es None, crear dataframes para almacenar resultados de pacientes
-        if lista_dfs is not None:
-            for _ in lista_dfs:
-                results_labels_list.append(pd.DataFrame(columns=['y_labels', 'y_pred', 'y_pred_corrected', 'GAP', 'GAP_corrected','ID-unique']))
+        if df_patient is not None:
+            for _ in df_patient:
+                results_labels_patient.append(pd.DataFrame(columns=['y_labels', 'y_pred', 'y_pred_corrected', 'GAP', 'GAP_corrected','ID-unique']))
                 #results_per_fold_pat.append({})  # Diccionario por cada grupo de pacientes
         
         # Bucle de iteraciones
@@ -136,8 +138,8 @@ class BaseRegressor:
             kf_CN_splits = list(kf_CN.split(X_CN, y_CN))
 
             # Crear validación cruzada para cada dataframe de pacientes si lista_dfs no es None
-            if lista_dfs is not None:
-                kf_splits_list = [list(KFold(n_splits=n_splits, shuffle=True, random_state=i).split(df.iloc[:, :-2], df.iloc[:, -2])) for df in lista_dfs]
+            if df_patient is not None:
+                kf_splits_list = [list(KFold(n_splits=n_splits, shuffle=True, random_state=i).split(df.iloc[:, :-2], df.iloc[:, -2])) for df in df_patient]
 
             for fold in range(n_splits):
                 # Obtener índices de entrenamiento y prueba para CN
@@ -147,14 +149,30 @@ class BaseRegressor:
                 id_train_kf_CN = ID_CN.iloc[train_index_CN]
                 id_test_kf_CN = ID_CN.iloc[test_index_CN]
 
-                # Escalar datos de entrenamiento y prueba para CN
                 mean_X_train_kf = X_train_kf_CN.mean()
                 std_X_train_kf = X_train_kf_CN.std()
-                X_train_kf_CN_scaled = (X_train_kf_CN - mean_X_train_kf) / std_X_train_kf
-                X_test_kf_CN_scaled = (X_test_kf_CN - mean_X_train_kf) / std_X_train_kf
+                min_X_train_kf = X_train_kf_CN.min()
+                max_X_train_kf = X_train_kf_CN.max()
+
+                # Escalar los datos de acuerdo con el parámetro scaler
+                if scaler == 1:
+                    # No escalar
+                    X_train_kf_CN_scaled = X_train_kf_CN
+                    X_test_kf_CN_scaled = X_test_kf_CN
+                elif scaler == 2:
+                    # Z-score scaling                    
+                    X_train_kf_CN_scaled = (X_train_kf_CN - mean_X_train_kf) / std_X_train_kf
+                    X_test_kf_CN_scaled = (X_test_kf_CN - mean_X_train_kf) / std_X_train_kf
+                elif scaler == 3:
+                    # MinMax scaling (manual)                    
+                    X_train_kf_CN_scaled = (X_train_kf_CN - min_X_train_kf) / (max_X_train_kf - min_X_train_kf)
+                    X_test_kf_CN_scaled = (X_test_kf_CN - min_X_train_kf) / (max_X_train_kf - min_X_train_kf)
 
                 # Entrenar el modelo con CN
-                model = self.model_ml(**params, **self.model_params_train)
+                if type_model == 1:
+                    model = self.model_ml(**params, **self.model_params_train)
+                if type_model == 2:
+                    model = self.model_ml 
                 model.fit(X_train_kf_CN_scaled, y_train_kf_CN)
 
                 y_pred_CN_train = model.predict(X_train_kf_CN_scaled)
@@ -190,13 +208,13 @@ class BaseRegressor:
                 })
 
                 results_labels_df_CN_train = pd.concat([results_labels_df_CN_train, temp_CN_df_train], ignore_index=True)
-                results_per_fold_CN_train[i][fold] = temp_CN_df_train.copy()
+                results_per_fold_CN_train.append(temp_CN_df_train.copy())
                 results_labels_df_CN_test = pd.concat([results_labels_df_CN_test, temp_CN_df_test], ignore_index=True)
-                results_per_fold_CN_test[i][fold] = temp_CN_df_test.copy()
+                results_per_fold_CN_test.append(temp_CN_df_test.copy())
 
                 # Procesar cada dataframe de pacientes si lista_dfs no es None
-                if lista_dfs is not None:
-                    for j, df in enumerate(lista_dfs):
+                if df_patient is not None:
+                    for j, df in enumerate(df_patient):
                         train_index_pat, test_index_pat = kf_splits_list[j][fold]
                         X_train_pat = df.iloc[train_index_pat, :-2]
                         X_test_pat = df.iloc[test_index_pat, :-2]
@@ -223,20 +241,26 @@ class BaseRegressor:
                             'GAP_corrected': corrected_gap_pat,
                             'ID-unique': id_test_pat
                         })
-                        results_labels_list[j] = pd.concat([results_labels_list[j], temp_pat_df], ignore_index=True)
-                        results_per_fold_pat[j][i][fold] = temp_pat_df.copy()  # Guardar en el diccionario del fold de cada paciente
+                        results_labels_patient[j] = pd.concat([results_labels_patient[j], temp_pat_df], ignore_index=True)
+                        results_per_fold_patient[j].append(temp_pat_df.copy())  # Guardar en la lista simple
 
                 # Guardar el modelo entrenado
                 results['model'].append(model)
+                
                 results['mean_X_train_kf'].append(mean_X_train_kf)
                 results['std_X_train_kf'].append(std_X_train_kf)
+            
+                results['min_X_train_kf'].append(min_X_train_kf)
+                results['max_X_train_kf'].append(max_X_train_kf)
+                
                 results['slope'].append(slope)
                 results['intercept'].append(intercept)
 
-        return results_labels_df_CN_train, results_labels_df_CN_test, results_labels_list, results, results_per_fold_CN_train,results_per_fold_CN_test, results_per_fold_pat
+        return results_labels_df_CN_train, results_labels_df_CN_test, results_labels_patient, results, results_per_fold_CN_train,results_per_fold_CN_test, results_per_fold_patient
 
 
-
+    def test(self):
+        pass
 
     def avg_list(self, df_list):
         results_avg = []
@@ -292,9 +316,9 @@ class BaseRegressor:
         return best_hypers
 
     
-    def feature_importance_shap(self, X_test, X_train, model, random_seed=42):        
+    def calculate_simple_shap(self, X_train, X_test, model, random_seed=42):        
         try:
-            self.explainer = shap.Explainer(model)
+            self.explainer = shap.Explainer(model,X_train)
             shap_values = self.explainer.shap_values(X_test)
         except Exception as e:
             print("Fallo al usar shap.Explainer, intentando con shap.KernelExplainer:", e)
@@ -319,7 +343,91 @@ class BaseRegressor:
             print(f"{feature}: {shap_sum}")
         
         return shap_values, shap_summary_sorted
-       
+    
+    def calculate_multiple_shap(self, df_train, df_test, results_per_fold_train, results_per_fold_test, models_list, feature_col_range, iteration=20, kfolds_=10,  scaler=2, random_seed=42):
+        shap_values_dict = {id_unique: [] for id_unique in df_test['ID-unique'].unique()}
+        
+        range_ = iteration*kfolds_
+        
+        for i in range(range_):
+
+            # Train
+            ID_train_fold = results_per_fold_train[i]['ID-unique']
+            df_train_fold = df_train[df_train['ID-unique'].isin(ID_train_fold)]
+            X_train_kf = df_train_fold.iloc[:, feature_col_range]  # Features
+            y_train_kf = df_train_fold.iloc[:, -2]  # Labels
+
+            # Test
+            ID_test_fold = results_per_fold_test[i]['ID-unique']
+            df_test_fold = df_test[df_test['ID-unique'].isin(ID_test_fold)]
+            X_test_kf = df_test_fold.iloc[:, feature_col_range]  # Features
+            y_test_kf = df_test_fold.iloc[:, -2]  # Labels
+
+            if scaler == 1:
+                # No escalar
+                X_train_kf_scaled = X_train_kf
+                X_test_kf_scaled = X_test_kf
+            elif scaler == 2:
+                # Z-score scaling
+                mean_X_train_kf = X_train_kf.mean()
+                std_X_train_kf = X_train_kf.std()
+                X_train_kf_scaled = (X_train_kf - mean_X_train_kf) / std_X_train_kf
+                X_test_kf_scaled = (X_test_kf - mean_X_train_kf) / std_X_train_kf
+            elif scaler == 3:
+                # MinMax scaling (manual)
+                min_X_train_kf = X_train_kf.min()
+                max_X_train_kf = X_train_kf.max()
+                X_train_kf_scaled = (X_train_kf - min_X_train_kf) / (max_X_train_kf - min_X_train_kf)
+                X_test_kf_scaled = (X_test_kf - min_X_train_kf) / (max_X_train_kf - min_X_train_kf)
+
+
+            model_ = models_list[i]
+
+            try:
+                self.explainer = shap.Explainer(model_,X_train_kf_scaled)
+                shap_values = self.explainer.shap_values(X_test_kf_scaled)
+            except Exception as e:
+                print("Fallo al usar shap.Explainer, intentando con shap.KernelExplainer:", e)
+                try:
+                    np.random.seed(random_seed)
+                    self.explainer = shap.KernelExplainer(model_.predict, shap.sample(X_train_kf_scaled, 10), num_jobs=-1)
+                    shap_values = self.explainer.shap_values(X_test_kf_scaled)
+                except Exception as kernel_e:
+                    print("Fallo al usar shap.KernelExplainer:", kernel_e)
+                    return None, None 
+
+            # SHAP calculation
+            #explainer = shap.Explainer(model_, X_train_kf_scaled)
+            #shap_values = explainer.shap_values(X_test_kf_scaled)
+
+            # Store SHAP values
+            for idx, id_unique in enumerate(df_test_fold['ID-unique']):
+                shap_values_dict[id_unique].append(shap_values[idx])
+
+        # Average SHAP values
+        shap_values_avg_dict = {id_unique: np.mean(values, axis=0) for id_unique, values in shap_values_dict.items()}
+
+        # Prepare SHAP summary matrix
+        shap_values_avg_matrix = [shap_values_avg_dict[id_unique] for id_unique in df_test['ID-unique'].unique()]
+        shap_values_avg_array = np.array(shap_values_avg_matrix)
+
+        feature_names = X_test_kf_scaled.columns.tolist()
+
+        shap_values_df = pd.DataFrame(shap_values_avg_array, columns=feature_names)
+        shap_values_df['ID-unique'] = df_test['ID-unique'].unique()
+        shap_values_df.set_index('ID-unique', inplace=True)
+
+        # SHAP summary
+        shap_sum = np.abs(shap_values_avg_array).sum(axis=0)
+        shap_summary = {feature: shap_sum[i] for i, feature in enumerate(feature_names)}
+        shap_summary_sorted = sorted(shap_summary.items(), key=lambda x: x[1], reverse=True)
+
+        # Imprimir el listado de importancia de características
+        print("Importancia de características basada en suma de valores SHAP:")
+        for feature, shap_sum in shap_summary_sorted:
+            print(f"{feature}: {shap_sum}")
+
+        return shap_values_avg_array, shap_summary_sorted
 
 
     def shap_region(self, shap_summary_sorted, num_max=20):

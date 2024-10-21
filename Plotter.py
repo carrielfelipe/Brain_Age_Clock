@@ -3,7 +3,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split, KFold
 from sklearn.model_selection import StratifiedKFold
 
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from skopt import BayesSearchCV
 from skopt.space import Real, Categorical, Integer
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
@@ -169,7 +169,7 @@ class Plotter:
     def plot_regresion(self,x ,y , x_size=4, y_size=4, label_='', color='navy', alpha=0.5, color_line_fit='red', color_line_ideal='purple', color_confidence_interval='blue' , alpha_confidence_interval=0.6, title='',
                        xlabel='',ylabel='',label=True, line_fit=True, line_ideal=True , confidence_interval=True,  x_ticks_step=10, y_ticks_step=10, mode=1,
                         x_min_limit=None, x_max_limit=None, y_min_limit=None, y_max_limit=None, legend= True,legend_metrics=True, font='DejaVu Sans', fontsize=12, weight='normal', details = True,
-                        xticks =1,yticks=1):
+                        xticks =1,yticks=1, print_metrics=True):
         """
         Grafica los resultados de la regresión, incluyendo las métricas de rendimiento para cada conjunto (entrenamiento, validación, prueba).
         """
@@ -212,7 +212,7 @@ class Plotter:
             plt.ylabel(ylabel, fontweight=weight,fontname=font, fontsize=fontsize)
         
 
-        p_value = linear_model.pvalues[1]
+        #p_value = linear_model.pvalues[1]
         
         # Mostrar las métricas de evaluación directamente en el gráfico
         mae_model, mse_model, rmse_model, r2_model = self.regression_metrics(y_true=x, y_pred=y)
@@ -286,12 +286,13 @@ class Plotter:
             plt.legend(loc='lower right')
         plt.show()
 
-        # Impresión de las métricas de evaluación en la consola
-        print(f'Error medio absoluto: {mae_model}')
-        print(f'Error cuadrático medio: {mse_model}')
-        print(f'Raíz del error cuadrático medio: {rmse_model}')
-        print(f'Coeficiente de determinación (R²): {r2_model}')
-        
+        if print_metrics:
+            # Impresión de las métricas de evaluación en la consola
+            print(f'Error medio absoluto: {mae_model}')
+            print(f'Error cuadrático medio: {mse_model}')
+            print(f'Raíz del error cuadrático medio: {rmse_model}')
+            print(f'Coeficiente de determinación (R²): {r2_model}')
+            
 
 
 
@@ -343,8 +344,11 @@ class Plotter:
         
         # Calcular correlaciones para las características más importantes
         X_ = filtered_X_test.values
+        Scaler = StandardScaler()
+        Scaler.fit(X_)
+        X_scaled=Scaler.transform(X_)
         y_ = y_test.values
-        correlations = np.array([np.corrcoef(X_[:, i], y_.flatten())[0, 1] for i in range(X_.shape[1])])
+        correlations = np.array([np.corrcoef(X_scaled[:, i], y_.flatten())[0, 1] for i in range(X_.shape[1])])
         
         # Crear una paleta de colores basada en la correlación
         cmap = sns.color_palette(theme3, as_cmap=True)
