@@ -43,6 +43,12 @@ class BaseRegressor:
         self.y_train = None
         self.X_test = None
         self.y_test = None
+
+        self.x_train_kf = None
+        self.y_train_kf= None
+
+        self.early_stopping_rounds = 10
+
         self.residual_model = None
 
 
@@ -89,8 +95,11 @@ class BaseRegressor:
 
         return self.opt_model, best_params_return
     
+    def get_eval_set(self):
+        """Retorna el conjunto de evaluación actual."""
+        return [(self.x_train_kf, self.y_train_kf)]
     
-    def trainer(self, df_CN, df_patient=None, n_splits=10, n_iterations=20, params_=None, type_model=1, scaler=2):
+    def trainer(self, df_CN, df_patient=None, n_splits=10, n_iterations=20, params_=None, type_model=1, scaler=2, early_stop=False):
     
         if params_ is None:
             params = self.params
@@ -168,12 +177,26 @@ class BaseRegressor:
                     X_train_kf_CN_scaled = (X_train_kf_CN - min_X_train_kf) / (max_X_train_kf - min_X_train_kf)
                     X_test_kf_CN_scaled = (X_test_kf_CN - min_X_train_kf) / (max_X_train_kf - min_X_train_kf)
 
+                self.x_train_kf = X_train_kf_CN_scaled
+                self.y_train_kf=y_train_kf_CN
+
+
                 # Entrenar el modelo con CN
                 if type_model == 1:
                     model = self.model_ml(**params, **self.model_params_train)
                 if type_model == 2:
-                    model = self.model_ml 
-                model.fit(X_train_kf_CN_scaled, y_train_kf_CN)
+                    model = self.model_ml
+
+                if early_stop:
+                    self.fit_params_train = {
+                    "early_stopping_rounds": self.early_stopping_rounds,
+                    "eval_set": "mae",
+                    "eval_set": self.get_eval_set(),
+                    "verbose": False
+                    }
+
+                    
+                model.fit(X_train_kf_CN_scaled, y_train_kf_CN,**self.fit_params_train)
 
                 y_pred_CN_train = model.predict(X_train_kf_CN_scaled)
                 gap_CN_train = y_pred_CN_train - y_train_kf_CN
