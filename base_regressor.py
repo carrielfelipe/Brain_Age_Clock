@@ -32,6 +32,8 @@ class BaseRegressor:
         self.fit_params_train = fit_params_train if fit_params_train is not None else {}
         self.model_params_train = models_params_train if models_params_train is not None else {}
 
+        self.fit_param={}
+
         self.save_path = save_path
         self.model_ml = None
         self.name_model = name_model
@@ -82,7 +84,7 @@ class BaseRegressor:
         self.opt_model = BayesSearchCV(
             estimator=model,
             search_spaces=param_space,
-            #fit_params=self.fit_param,
+            fit_params=self.fit_param,
             cv=kf,
             n_iter=n_iter_,
             scoring=scoring_metric,
@@ -99,7 +101,7 @@ class BaseRegressor:
         """Retorna el conjunto de evaluación actual."""
         return [(self.x_train_kf, self.y_train_kf)]
     
-    def trainer(self, df_CN, df_patient=None, n_splits=10, n_iterations=20, params_=None, type_model=1, scaler=2, early_stop=False):
+    def trainer(self, df_CN, df_patient=None, n_splits=10, n_iterations=20, params_=None, type_model=1, scaler=2, early_stopping_rounds=None):
     
         if params_ is None:
             params = self.params
@@ -175,11 +177,7 @@ class BaseRegressor:
                 elif scaler == 3:
                     # MinMax scaling (manual)                    
                     X_train_kf_CN_scaled = (X_train_kf_CN - min_X_train_kf) / (max_X_train_kf - min_X_train_kf)
-                    X_test_kf_CN_scaled = (X_test_kf_CN - min_X_train_kf) / (max_X_train_kf - min_X_train_kf)
-
-                self.x_train_kf = X_train_kf_CN_scaled
-                self.y_train_kf=y_train_kf_CN
-
+                    X_test_kf_CN_scaled = (X_test_kf_CN - min_X_train_kf) / (max_X_train_kf - min_X_train_kf)         
 
                 # Entrenar el modelo con CN
                 if type_model == 1:
@@ -187,11 +185,12 @@ class BaseRegressor:
                 if type_model == 2:
                     model = self.model_ml
 
-                if early_stop:
+                if early_stopping_rounds:
                     self.fit_params_train = {
-                    "early_stopping_rounds": self.early_stopping_rounds,
+                    "early_stopping_rounds": early_stopping_rounds,
                     "eval_set": "mae",
-                    "eval_set": self.get_eval_set(),
+                    #"eval_set": self.get_eval_set(),
+                    "eval_set": [(X_test_kf_CN_scaled, y_test_kf_CN)],
                     "verbose": False
                     }
 
