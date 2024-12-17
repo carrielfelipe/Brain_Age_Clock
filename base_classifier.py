@@ -89,25 +89,22 @@ class BaseClassifier:
         return opt_model, best_params_return
     
 
-    def trainer(self, df, n_splits=10, n_iterations=20, params_=None, type_model=1, scaler=2, early_stop=False, id='ID-unique-2'):
+    def trainer(self, X, y, ID, ID_label, n_splits=10, n_iterations=20, params_=None, type_model=1, scaler=2, early_stopping_rounds=None):
         
         if params_ is None:
             params = self.params
         else:
-            params = params_
-
-
-        
+            params = params_        
         
         # Preparar el dataframe de controles
-        X = df.iloc[:, :-2]  # Features
-        y = df.iloc[:, -2]   # Labels (Age)
-        ID = df.iloc[:, -1]  # IDs
+        #X = df.iloc[:, :-2]  # Features
+        #y = df.iloc[:, -2]   # Labels (Age)
+        #ID = df.iloc[:, -1]  # IDs
         results_per_fold_train = []
         results_per_fold_test = []
                 
-        results_labels_df_train = pd.DataFrame(columns=['y_labels','y_pred','y_prob', id])
-        results_labels_df_test = pd.DataFrame(columns=['y_labels', 'y_pred','y_prob', id])
+        results_labels_df_train = pd.DataFrame(columns=['y_labels','y_pred','y_prob', ID_label])
+        results_labels_df_test = pd.DataFrame(columns=['y_labels', 'y_pred','y_prob', ID_label])
 
         # Inicializar resultados
         results = {'model': [],
@@ -128,8 +125,8 @@ class BaseClassifier:
             for fold in range(n_splits):
                 # Obtener índices de entrenamiento y prueba para CN
                 train_index, test_index = kf_splits[fold]
-                X_train_kf, X_test_kf_CN = X.iloc[train_index], X.iloc[test_index]
-                y_train_kf, y_test_kf_CN = y.iloc[train_index], y.iloc[test_index]
+                X_train_kf, X_test_kf = X.iloc[train_index], X.iloc[test_index]
+                y_train_kf, y_test_kf = y.iloc[train_index], y.iloc[test_index]
                 id_train_kf = ID.iloc[train_index]
                 id_test_kf = ID.iloc[test_index]
 
@@ -142,18 +139,18 @@ class BaseClassifier:
                 if scaler == 1:
                     # No escalar
                     X_train_kf_scaled = X_train_kf
-                    X_test_kf_scaled = X_test_kf_CN
+                    X_test_kf_scaled = X_test_kf
                 elif scaler == 2:
                     # Z-score scaling                    
                     X_train_kf_scaled = (X_train_kf - mean_X_train_kf) / std_X_train_kf
-                    X_test_kf_scaled = (X_test_kf_CN - mean_X_train_kf) / std_X_train_kf
+                    X_test_kf_scaled = (X_test_kf - mean_X_train_kf) / std_X_train_kf
                 elif scaler == 3:
                     # MinMax scaling (manual)                    
                     X_train_kf_scaled = (X_train_kf - min_X_train_kf) / (max_X_train_kf - min_X_train_kf)
-                    X_test_kf_scaled = (X_test_kf_CN - min_X_train_kf) / (max_X_train_kf - min_X_train_kf)
+                    X_test_kf_scaled = (X_test_kf - min_X_train_kf) / (max_X_train_kf - min_X_train_kf)
 
-                self.x_train_kf = X_train_kf_scaled
-                self.y_train_kf=y_train_kf
+                #x_train_kf = X_train_kf_scaled
+                #y_train_kf=y_train_kf
 
 
                 # Entrenar el modelo con CN
@@ -162,42 +159,43 @@ class BaseClassifier:
                 if type_model == 2:
                     model = self.model_ml
 
-                if early_stop:
-                    self.fit_params_train = {
-                    "early_stopping_rounds": self.early_stopping_rounds,
+                if early_stopping_rounds:
+                    fit_params_train = {
+                    "early_stopping_rounds": early_stopping_rounds,
                     "eval_set": "mae",
-                    "eval_set": self.get_eval_set(),
+                    #"eval_set": self.get_eval_set(),
+                    "eval_set": [(X_test_kf_scaled, y_test_kf)],
                     "verbose": False
                     }
 
                     
                 model.fit(X_train_kf_scaled, y_train_kf,**self.fit_params_train)
 
-                y_pred_CN_train = model.predict(X_train_kf_scaled)
-                y_prob_CN_train = model.predict_proba(X_train_kf_scaled)[:, 1]
+                y_pred_train = model.predict(X_train_kf_scaled)
+                y_prob_train = model.predict_proba(X_train_kf_scaled)[:, 1]
 
                 # Hacer predicciones para el conjunto de prueba de CN
-                y_pred_CN_test = model.predict(X_test_kf_scaled)
-                y_prob_CN_test = model.predict_proba(X_test_kf_scaled)[:, 1]
+                y_pred_test = model.predict(X_test_kf_scaled)
+                y_prob_test = model.predict_proba(X_test_kf_scaled)[:, 1]
                 
                 # Guardar resultados de CN 
-                temp_CN_df_test = pd.DataFrame({
-                    'y_labels': y_test_kf_CN,
-                    'y_pred': y_pred_CN_test,
-                    'y_prob':y_prob_CN_test,                    
-                    id: id_test_kf
+                temp_df_test = pd.DataFrame({
+                    'y_labels': y_test_kf,
+                    'y_pred': y_pred_test,
+                    'y_prob':y_prob_test,                    
+                    ID_label: id_test_kf
                 })
-                temp_CN_df_train = pd.DataFrame({                    
+                temp_df_train = pd.DataFrame({                    
                     'y_labels': y_train_kf,
-                    'y_pred': y_pred_CN_train, 
-                    'y_prob':y_prob_CN_train  ,                 
-                    id: id_train_kf
+                    'y_pred': y_pred_train, 
+                    'y_prob':y_prob_train,                 
+                    ID_label: id_train_kf
                 })
 
-                results_labels_df_train = pd.concat([results_labels_df_train, temp_CN_df_train], ignore_index=True)
-                results_per_fold_train.append(temp_CN_df_train.copy())
-                results_labels_df_test = pd.concat([results_labels_df_test, temp_CN_df_test], ignore_index=True)
-                results_per_fold_test.append(temp_CN_df_test.copy())
+                results_labels_df_train = pd.concat([results_labels_df_train, temp_df_train], ignore_index=True)
+                results_per_fold_train.append(temp_df_train.copy())
+                results_labels_df_test = pd.concat([results_labels_df_test, temp_df_test], ignore_index=True)
+                results_per_fold_test.append(temp_df_test.copy())
 
                 # Procesar cada dataframe de pacientes si lista_dfs no es None
                 

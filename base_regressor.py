@@ -123,103 +123,103 @@ class BaseRegressor:
         results_labels_df_test = pd.DataFrame(columns=['y_labels', 'y_pred', 'y_pred_corrected', 'GAP', 'GAP_corrected', ID_label])
 
         for i in range(n_iterations):
-                # Crear validación cruzada para CN
-                kf = KFold(n_splits=n_splits, shuffle=True, random_state=i)
-                kf_splits = list(kf.split(X, y))
+            # Crear validación cruzada para CN
+            kf = KFold(n_splits=n_splits, shuffle=True, random_state=i)
+            kf_splits = list(kf.split(X, y))
 
-                for fold in range(n_splits):
-                    # Obtener índices de entrenamiento y prueba para CN
-                    train_index, test_index = kf_splits[fold]
-                    X_train_kf, X_test_kf = X.iloc[train_index], X.iloc[test_index]
-                    y_train_kf, y_test_kf = y.iloc[train_index], y.iloc[test_index]
-                    id_train_kf = ID.iloc[train_index]
-                    id_test_kf = ID.iloc[test_index]
+            for fold in range(n_splits):
+                # Obtener índices de entrenamiento y prueba para CN
+                train_index, test_index = kf_splits[fold]
+                X_train_kf, X_test_kf = X.iloc[train_index], X.iloc[test_index]
+                y_train_kf, y_test_kf = y.iloc[train_index], y.iloc[test_index]
+                id_train_kf = ID.iloc[train_index]
+                id_test_kf = ID.iloc[test_index]
 
-                    mean_X_train_kf = X_train_kf.mean()
-                    std_X_train_kf = X_train_kf.std()
-                    min_X_train_kf = X_train_kf.min()
-                    max_X_train_kf = X_train_kf.max()
+                mean_X_train_kf = X_train_kf.mean()
+                std_X_train_kf = X_train_kf.std()
+                min_X_train_kf = X_train_kf.min()
+                max_X_train_kf = X_train_kf.max()
 
-                    # Escalar los datos de acuerdo con el parámetro scaler
-                    if scaler == 1:
-                        # No escalar
-                        X_train_kf_scaled = X_train_kf
-                        X_test_kf_scaled = X_test_kf
-                    elif scaler == 2:
-                        # Z-score scaling                    
-                        X_train_kf_scaled = (X_train_kf - mean_X_train_kf) / std_X_train_kf
-                        X_test_kf_scaled = (X_test_kf - mean_X_train_kf) / std_X_train_kf
-                    elif scaler == 3:
-                        # MinMax scaling (manual)                    
-                        X_train_kf_scaled = (X_train_kf - min_X_train_kf) / (max_X_train_kf - min_X_train_kf)
-                        X_test_kf_scaled = (X_test_kf - min_X_train_kf) / (max_X_train_kf - min_X_train_kf)         
+                # Escalar los datos de acuerdo con el parámetro scaler
+                if scaler == 1:
+                    # No escalar
+                    X_train_kf_scaled = X_train_kf
+                    X_test_kf_scaled = X_test_kf
+                elif scaler == 2:
+                    # Z-score scaling                    
+                    X_train_kf_scaled = (X_train_kf - mean_X_train_kf) / std_X_train_kf
+                    X_test_kf_scaled = (X_test_kf - mean_X_train_kf) / std_X_train_kf
+                elif scaler == 3:
+                    # MinMax scaling (manual)                    
+                    X_train_kf_scaled = (X_train_kf - min_X_train_kf) / (max_X_train_kf - min_X_train_kf)
+                    X_test_kf_scaled = (X_test_kf - min_X_train_kf) / (max_X_train_kf - min_X_train_kf)         
 
-                    # Entrenar el modelo con CN
-                    if type_model == 1:
-                        model = self.model_ml(**params, **self.model_params_train)
-                    if type_model == 2:
-                        model = self.model_ml
+                # Entrenar el modelo con CN
+                if type_model == 1:
+                    model = self.model_ml(**params, **self.model_params_train)
+                if type_model == 2:
+                    model = self.model_ml
 
-                    if early_stopping_rounds:
-                        fit_params_train = {
-                        "early_stopping_rounds": early_stopping_rounds,
-                        "eval_set": "mae",
-                        #"eval_set": self.get_eval_set(),
-                        "eval_set": [(X_test_kf_scaled, y_test_kf)],
-                        "verbose": False
-                        }
+                if early_stopping_rounds:
+                    fit_params_train = {
+                    "early_stopping_rounds": early_stopping_rounds,
+                    "eval_set": "mae",
+                    #"eval_set": self.get_eval_set(),
+                    "eval_set": [(X_test_kf_scaled, y_test_kf)],
+                    "verbose": False
+                    }
 
-                        
-                    model.fit(X_train_kf_scaled, y_train_kf,**self.fit_params_train)
-
-                    y_pred_train = model.predict(X_train_kf_scaled)
-                    gap_train = y_pred_train - y_train_kf
-
-              
-                    y_pred_test = model.predict(X_test_kf_scaled)
-                    gap_CN_test = y_pred_test - y_test_kf
-
-                    # Ajuste de GAP para CN
-                    slope, intercept, _, _, _ = linregress(y_train_kf, gap_train)
-                    corrected_gap_train = gap_train - (slope * y_train_kf + intercept)
-                    corrected_gap_test = gap_CN_test - (slope * y_test_kf + intercept)
-                    y_pred_corrected_test = y_pred_test - (slope * y_test_kf + intercept)
-                    y_pred_corrected_CN_train = y_pred_train - (slope * y_train_kf + intercept)
-
-                    # Guardar resultados de CN 
-                    temp_df_test = pd.DataFrame({
-                        'y_labels': y_test_kf,
-                        'y_pred': y_pred_test,
-                        'y_pred_corrected': y_pred_corrected_test,
-                        'GAP': gap_CN_test,
-                        'GAP_corrected': corrected_gap_test,
-                        ID_label: id_test_kf
-                    })
-                    temp_df_train = pd.DataFrame({                    
-                        'y_labels': y_train_kf,
-                        'y_pred': y_pred_train,
-                        'y_pred_corrected': y_pred_corrected_CN_train,
-                        'GAP': gap_train,
-                        'GAP_corrected': corrected_gap_train,
-                        ID_label: id_train_kf
-                    })
-
-                    results_labels_df_train = pd.concat([results_labels_df_train, temp_df_train], ignore_index=True)
-                    results_per_fold_train.append(temp_df_train.copy())
-                    results_labels_df_test = pd.concat([results_labels_df_test, temp_df_test], ignore_index=True)
-                    results_per_fold_test.append(temp_df_test.copy())
-
-                    # Guardar el modelo entrenado
-                    results['model'].append(model)
                     
-                    results['mean_X_train_kf'].append(mean_X_train_kf)
-                    results['std_X_train_kf'].append(std_X_train_kf)
+                model.fit(X_train_kf_scaled, y_train_kf,**self.fit_params_train)
+
+                y_pred_train = model.predict(X_train_kf_scaled)
+                gap_train = y_pred_train - y_train_kf
+
+            
+                y_pred_test = model.predict(X_test_kf_scaled)
+                gap_CN_test = y_pred_test - y_test_kf
+
+                # Ajuste de GAP para CN
+                slope, intercept, _, _, _ = linregress(y_train_kf, gap_train)
+                corrected_gap_train = gap_train - (slope * y_train_kf + intercept)
+                corrected_gap_test = gap_CN_test - (slope * y_test_kf + intercept)
+                y_pred_corrected_test = y_pred_test - (slope * y_test_kf + intercept)
+                y_pred_corrected_CN_train = y_pred_train - (slope * y_train_kf + intercept)
+
+                # Guardar resultados de CN 
+                temp_df_test = pd.DataFrame({
+                    'y_labels': y_test_kf,
+                    'y_pred': y_pred_test,
+                    'y_pred_corrected': y_pred_corrected_test,
+                    'GAP': gap_CN_test,
+                    'GAP_corrected': corrected_gap_test,
+                    ID_label: id_test_kf
+                })
+                temp_df_train = pd.DataFrame({                    
+                    'y_labels': y_train_kf,
+                    'y_pred': y_pred_train,
+                    'y_pred_corrected': y_pred_corrected_CN_train,
+                    'GAP': gap_train,
+                    'GAP_corrected': corrected_gap_train,
+                    ID_label: id_train_kf
+                })
+
+                results_labels_df_train = pd.concat([results_labels_df_train, temp_df_train], ignore_index=True)
+                results_per_fold_train.append(temp_df_train.copy())
+                results_labels_df_test = pd.concat([results_labels_df_test, temp_df_test], ignore_index=True)
+                results_per_fold_test.append(temp_df_test.copy())
+
+                # Guardar el modelo entrenado
+                results['model'].append(model)
                 
-                    results['min_X_train_kf'].append(min_X_train_kf)
-                    results['max_X_train_kf'].append(max_X_train_kf)
-                    
-                    results['slope'].append(slope)
-                    results['intercept'].append(intercept)
+                results['mean_X_train_kf'].append(mean_X_train_kf)
+                results['std_X_train_kf'].append(std_X_train_kf)
+            
+                results['min_X_train_kf'].append(min_X_train_kf)
+                results['max_X_train_kf'].append(max_X_train_kf)
+                
+                results['slope'].append(slope)
+                results['intercept'].append(intercept)
 
                 
 
